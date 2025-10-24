@@ -3,7 +3,7 @@
   "displayName": "Markdown Extended",
   "description": "Extended syntaxes to built-in markdown & What you see is what you get exporter.",
   "icon": "images/logo.png",
-  "version": "1.1.4",
+  "version": "1.1.4-geser",
   "publisher": "jebbs",
   "engines": {
     "vscode": "^1.54.0"
@@ -340,7 +340,8 @@
     "markdown.markdownItPlugins": true,
     "markdown.previewStyles": [
       "styles/markdown-it-admonition.css",
-      "styles/markdown-it-kbd.css"
+      "styles/markdown-it-kbd.css",
+      "styles/markdown-it-ai-container.css"
     ]
   },
   "scripts": {

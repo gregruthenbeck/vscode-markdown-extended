@@ -1,0 +1,110 @@
+/* AI Container Styles */
+
+/* Fieldset reset and base styling */
+.ai-container {
+  /* Reset browser defaults */
+  min-width: 0;
+
+  /* Custom styling */
+  border: 2px solid var(--vscode-textBlockQuote-border, rgba(100, 150, 255, 0.6));
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  background-color: var(--vscode-textBlockQuote-background, rgba(100, 150, 255, 0.03));
+}
+
+/* Legend (label in border) */
+.ai-container legend {
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: var(--vscode-textLink-foreground, rgba(100, 150, 255, 0.9));
+  padding: 0 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Prompt section */
+.ai-prompt {
+  margin-bottom: 0.5rem;
+  color: var(--vscode-editor-foreground);
+}
+
+.ai-prompt > p:first-child {
+  margin-top: 0;
+}
+
+.ai-prompt > p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-prompt > *:first-child {
+  margin-top: 0;
+}
+
+.ai-prompt > *:last-child {
+  margin-bottom: 0.5rem;
+}
+
+/* Separator between prompt and response */
+.ai-separator {
+  border: none;
+  border-top: 1px solid var(--vscode-textBlockQuote-border, rgba(100, 150, 255, 0.3));
+  margin: 1rem 0;
+}
+
+/* Response section */
+.ai-response {
+  margin-top: 0.5rem;
+  color: var(--vscode-editor-foreground);
+}
+
+.ai-response > p:first-child {
+  margin-top: 0;
+}
+
+.ai-response > p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-response > *:first-child {
+  margin-top: 0;
+}
+
+.ai-response > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Error state styling */
+.ai-container.ai-error {
+  border-color: var(--vscode-inputValidation-errorBorder, rgba(255, 100, 100, 0.6));
+  background-color: var(--vscode-inputValidation-errorBackground, rgba(255, 100, 100, 0.05));
+}
+
+.ai-container.ai-error legend {
+  color: var(--vscode-inputValidation-errorForeground, rgba(255, 100, 100, 0.9));
+}
+
+.ai-container.ai-error p {
+  margin: 0.5rem 0;
+}
+
+.ai-container.ai-error p:first-child {
+  margin-top: 0;
+}
+
+.ai-container.ai-error p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-container.ai-error strong {
+  color: var(--vscode-inputValidation-errorForeground, rgba(255, 100, 100, 1));
+}
+
+.ai-container.ai-error pre {
+  background-color: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.1));
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.9em;
+  margin: 0.5rem 0;
+}

@@ -3,6 +3,7 @@ import { MarkdownItContainer } from './markdownItContainer';
 import { MarkdownItAnchorLink } from './markdownItAnchorLink';
 import { MarkdownItExportHelper } from './markdownItExportHelper';
 import { MarkdownItAdmonition } from './markdownItAdmonition';
+import { MarkdownItAiContainer } from './markdownItAiContainer';
 import { config } from '../services/common/config';
 
 interface markdowItPlugin {
@@ -14,6 +15,7 @@ let myPlugins = {
     'markdown-it-toc': MarkdownItTOC,
     'markdown-it-container': MarkdownItContainer,
     'markdown-it-admonition': MarkdownItAdmonition,
+    'markdown-it-ai-container': MarkdownItAiContainer,
     'markdown-it-anchor': MarkdownItAnchorLink,
     'markdown-it-helper': MarkdownItExportHelper,
 }
@@ -22,6 +24,7 @@ export var plugins: markdowItPlugin[] = [
     // $('markdown-it-toc'),
     // $('markdown-it-anchor'), // MarkdownItAnchorLink requires MarkdownItTOC
     $('markdown-it-table-of-contents', { includeLevel: config.tocLevels }),
+    $('markdown-it-ai-container'), // Must be before markdown-it-container for priority
     $('markdown-it-container'),
     $('markdown-it-admonition'),
     $('markdown-it-footnote'),
