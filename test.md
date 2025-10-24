@@ -152,3 +152,52 @@ versions:
     model: test-model
     response: |
       But it should auto-close at end of document
+:::
+
+## Test 12: Scrollable Image Containers (Auto-Detection)
+
+### Auto-detected by filename pattern
+
+This image should be wrapped in a scrollable container:
+
+![Mobile Screenshot](mobile-screenshot-login.jpg)
+
+This image should also be scrollable:
+
+![Screenshot](screenshot-dashboard-375x812.png)
+
+This portrait image should be scrollable:
+
+![Portrait](portrait-image.jpg)
+
+This should be scrollable (tall in name):
+
+![Tall Image](tall-design-mockup.png)
+
+### Normal images (no scrollable container)
+
+This landscape image should display normally:
+
+![Landscape](landscape-view.jpg)
+
+This desktop screenshot should display normally:
+
+![Desktop](desktop-screenshot.png)
+
+## Test 13: Explicit Image Container Control
+
+### Force scrollable with title marker
+
+This image should be scrollable (explicit "tall" marker):
+
+![Any image](random-filename.jpg "tall")
+
+This should be scrollable (explicit "mobile-screenshot" marker):
+
+![Another image](any-name.png "mobile-screenshot")
+
+### Opt-out of scrollable container
+
+This mobile screenshot should NOT be scrollable (has "no-scroll"):
+
+![Mobile but no scroll](mobile-screenshot.jpg "no-scroll")

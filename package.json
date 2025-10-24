@@ -3,7 +3,7 @@
   "displayName": "Markdown Extended",
   "description": "Extended syntaxes to built-in markdown & What you see is what you get exporter.",
   "icon": "images/logo.png",
-  "version": "1.1.4-geser",
+  "version": "1.1.4b-geser",
   "publisher": "jebbs",
   "engines": {
     "vscode": "^1.54.0"
@@ -341,7 +341,8 @@
     "markdown.previewStyles": [
       "styles/markdown-it-admonition.css",
       "styles/markdown-it-kbd.css",
-      "styles/markdown-it-ai-container.css"
+      "styles/markdown-it-ai-container.css",
+      "styles/markdown-it-image-container.css"
     ]
   },
   "scripts": {
@@ -350,6 +351,7 @@
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
+    "@types/image-size": "^0.7.0",
     "@types/mocha": "^10.0.6",
     "@types/node": "18.x",
     "@types/vscode": "^1.54.0",
@@ -358,6 +360,7 @@
   "dependencies": {
     "clipboardy": "^2.3.0",
     "highlight.js": "^11.9.0",
+    "image-size": "^2.0.2",
     "js-yaml": "^4.1.0",
     "markdown-it-abbr": "^2.0.0",
     "markdown-it-attrs": "^4.1.6",

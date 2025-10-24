@@ -4,6 +4,7 @@ import { MarkdownItAnchorLink } from './markdownItAnchorLink';
 import { MarkdownItExportHelper } from './markdownItExportHelper';
 import { MarkdownItAdmonition } from './markdownItAdmonition';
 import { MarkdownItAiContainer } from './markdownItAiContainer';
+import { MarkdownItImageContainer } from './markdownItImageContainer';
 import { config } from '../services/common/config';
 
 interface markdowItPlugin {
@@ -16,6 +17,7 @@ let myPlugins = {
     'markdown-it-container': MarkdownItContainer,
     'markdown-it-admonition': MarkdownItAdmonition,
     'markdown-it-ai-container': MarkdownItAiContainer,
+    'markdown-it-image-container': MarkdownItImageContainer,
     'markdown-it-anchor': MarkdownItAnchorLink,
     'markdown-it-helper': MarkdownItExportHelper,
 }
@@ -24,6 +26,7 @@ export var plugins: markdowItPlugin[] = [
     // $('markdown-it-toc'),
     // $('markdown-it-anchor'), // MarkdownItAnchorLink requires MarkdownItTOC
     $('markdown-it-table-of-contents', { includeLevel: config.tocLevels }),
+    $('markdown-it-image-container'), // Wrap tall images in scrollable containers
     $('markdown-it-ai-container'), // Must be before markdown-it-container for priority
     $('markdown-it-container'),
     $('markdown-it-admonition'),
