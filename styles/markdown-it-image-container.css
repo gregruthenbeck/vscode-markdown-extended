@@ -1,0 +1,106 @@
+/* Scrollable Image Container for Tall/Mobile Screenshots */
+
+.image-scroll-container {
+  max-height: 600px;
+  max-width: 400px; /* Typical mobile width */
+  margin: 1.5rem auto;
+  border: 1px solid var(--vscode-panel-border, #ddd);
+  border-radius: 8px;
+  background: var(--vscode-editor-background, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Debug badge (visible when DEBUG=true) */
+.image-debug-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 200, 0, 0.9);
+  color: #000;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.image-scroll-inner {
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+}
+
+.image-scroll-inner img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+}
+
+.image-scroll-hint {
+  display: block;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground, #666);
+  background: var(--vscode-editorWidget-background, #f8f8f8);
+  border-top: 1px solid var(--vscode-panel-border, #ddd);
+  flex-shrink: 0;
+}
+
+/* Dark mode support */
+.vscode-dark .image-scroll-container {
+  border-color: var(--vscode-panel-border, #444);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.vscode-dark .image-scroll-hint {
+  background: var(--vscode-editorWidget-background, #2d2d2d);
+  border-top-color: var(--vscode-panel-border, #444);
+}
+
+/* Custom scrollbar styling for better UX */
+.image-scroll-inner::-webkit-scrollbar {
+  width: 8px;
+}
+
+.image-scroll-inner::-webkit-scrollbar-track {
+  background: var(--vscode-scrollbarSlider-background, #f1f1f1);
+}
+
+.image-scroll-inner::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-hoverBackground, #888);
+  border-radius: 4px;
+}
+
+.image-scroll-inner::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-activeBackground, #555);
+}
+
+/* Responsive: wider on larger screens */
+@media (min-width: 768px) {
+  .image-scroll-container {
+    max-width: 450px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .image-scroll-container {
+    max-width: 500px;
+  }
+}
+
+/* High contrast mode support */
+.vscode-high-contrast .image-scroll-container {
+  border: 2px solid var(--vscode-contrastBorder);
+}
+
+.vscode-high-contrast .image-scroll-hint {
+  border-top: 2px solid var(--vscode-contrastBorder);
+}

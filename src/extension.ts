@@ -36,10 +36,13 @@ export function activate(ctx: vscode.ExtensionContext) {
     );
     return {
         extendMarkdownIt(md: markdowIt.MarkdownIt) {
+            console.log('🟢 extendMarkdownIt called! Applying', plugins.length, 'plugins');
             plugins.map(p => {
+                console.log('  ➤ Applying plugin:', p.plugin.name);
                 md.use(p.plugin, ...p.args);
             });
             markdown = md;
+            console.log('🟢 All plugins applied!');
             return md;
         }
     }

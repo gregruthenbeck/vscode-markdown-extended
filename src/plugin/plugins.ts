@@ -26,7 +26,6 @@ export var plugins: markdowItPlugin[] = [
     // $('markdown-it-toc'),
     // $('markdown-it-anchor'), // MarkdownItAnchorLink requires MarkdownItTOC
     $('markdown-it-table-of-contents', { includeLevel: config.tocLevels }),
-    $('markdown-it-image-container'), // Wrap tall images in scrollable containers
     $('markdown-it-ai-container'), // Must be before markdown-it-container for priority
     $('markdown-it-container'),
     $('markdown-it-admonition'),
@@ -43,6 +42,7 @@ export var plugins: markdowItPlugin[] = [
     $('markdown-it-emoji'),
     $('markdown-it-multimd-table', { multiline: true, rowspan: true, headerless: true }),
     $('markdown-it-html5-embed', { html5embed: { useImageSyntax: true, useLinkSyntax: true } }),
+    $('markdown-it-image-container'), // Wrap tall images in scrollable containers (MUST be after html5-embed)
     $('markdown-it-helper'),
     $('markdown-it-bracketed-spans')
 ].filter(p => !!p);
