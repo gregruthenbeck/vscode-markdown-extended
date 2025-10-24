@@ -214,6 +214,127 @@ function limitLines(text: string, count: number, fromStart: boolean): { text: st
     return { text: limited.join('\n'), skipped };
 }
 
+/**
+ * Truncate text showing first N and last M lines
+ * Returns text with skip indicator in middle if truncated
+ */
+function truncateMiddle(text: string, first: number, last: number): string {
+    if (!text) return '';
+
+    const lines = text.split(/\r?\n/);
+    const totalLines = lines.length;
+
+    if (totalLines <= first + last) {
+        return text;
+    }
+
+    const firstLines = lines.slice(0, first);
+    const lastLines = lines.slice(-last);
+    const skipped = totalLines - first - last;
+
+    return [...firstLines, `*... (${skipped} lines)*`, ...lastLines].join('\n');
+}
+
+/**
+ * Process response field that may contain **Interrupt:** markers
+ * Applies different truncation rules to different segments
+ */
+function parseResponseWithInterrupts(text: string): string {
+    if (!text) return '';
+
+    const lines = text.split(/\r?\n/);
+    const interruptMarker = /^\s*\*\*Interrupt:\*\*\s*$/;
+    const aiMarker = /^\s*\*\*[A-Z][a-z]+:\*\*/; // Matches **Thinking:**, **Edit:**, **Bash:**, etc.
+
+    // Find all interrupt positions and their paired markers
+    const interrupts: Array<{ interruptLine: number, markerLine: number }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        if (interruptMarker.test(lines[i])) {
+            // Find next AI marker after this interrupt
+            let markerLine = -1;
+            for (let j = i + 1; j < lines.length; j++) {
+                if (aiMarker.test(lines[j]) && lines[j] !== '**Interrupt:**') {
+                    markerLine = j;
+                    break;
+                }
+            }
+            interrupts.push({ interruptLine: i, markerLine });
+        }
+    }
+
+    // If no interrupts, use simple last 10 lines truncation
+    if (interrupts.length === 0) {
+        const result = limitLines(text, 10, false);
+        if (result.skipped > 0) {
+            return `*... (${result.skipped} lines above)*\n\n${result.text}`;
+        }
+        return result.text;
+    }
+
+    // Build segments with appropriate truncation
+    const segments: string[] = [];
+    let currentPos = 0;
+
+    for (let i = 0; i < interrupts.length; i++) {
+        const { interruptLine, markerLine } = interrupts[i];
+
+        // Segment before interrupt (first 4 + last 8)
+        if (interruptLine > currentPos) {
+            const segmentLines = lines.slice(currentPos, interruptLine);
+            const segmentText = truncateMiddle(segmentLines.join('\n'), 4, 8);
+            if (segmentText) segments.push(segmentText);
+        }
+
+        // Add the **Interrupt:** marker itself
+        segments.push(lines[interruptLine]);
+
+        // Interrupt content (first 10 lines)
+        if (markerLine > 0) {
+            const interruptContent = lines.slice(interruptLine + 1, markerLine);
+            const contentText = interruptContent.join('\n').trim();
+            if (contentText) {
+                const truncated = limitLines(contentText, 10, true);
+                let interruptSegment = truncated.text;
+                if (truncated.skipped > 0) {
+                    interruptSegment += `\n\n*... (${truncated.skipped} more lines)*`;
+                }
+                segments.push(interruptSegment);
+            }
+
+            // Add the marker (e.g., **Thinking:**)
+            segments.push(lines[markerLine]);
+
+            // Determine where next segment starts
+            const nextInterruptLine = interrupts[i + 1]?.interruptLine ?? lines.length;
+
+            // Content after marker until next interrupt or end (first 4 + last 8)
+            if (nextInterruptLine > markerLine + 1) {
+                const afterMarkerLines = lines.slice(markerLine + 1, nextInterruptLine);
+                const afterMarkerText = truncateMiddle(afterMarkerLines.join('\n'), 4, 8);
+                if (afterMarkerText) segments.push(afterMarkerText);
+            }
+
+            currentPos = nextInterruptLine;
+        } else {
+            // No marker found after interrupt, treat rest as interrupt content
+            const remaining = lines.slice(interruptLine + 1);
+            const remainingText = remaining.join('\n').trim();
+            if (remainingText) {
+                const truncated = limitLines(remainingText, 10, true);
+                let interruptSegment = truncated.text;
+                if (truncated.skipped > 0) {
+                    interruptSegment += `\n\n*... (${truncated.skipped} more lines)*`;
+                }
+                segments.push(interruptSegment);
+            }
+            currentPos = lines.length;
+        }
+    }
+
+    return segments.join('\n\n');
+}
+
 function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): string {
     // Handle empty content
     if (!rawContent) {
@@ -236,20 +357,15 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
 `;
     }
 
-    // Limit lines: first 10 of prompt, last 10 of response
+    // Limit lines: first 10 of prompt
     const promptResult = limitLines(aiData.prompt, 10, true);
-    const responseResult = limitLines(aiData.response, 10, false);
-
-    // Add skip indicators
     let promptContent = promptResult.text;
     if (promptResult.skipped > 0) {
         promptContent += `\n\n*... (${promptResult.skipped} more lines)*`;
     }
 
-    let responseContent = responseResult.text;
-    if (responseResult.skipped > 0) {
-        responseContent = `*... (${responseResult.skipped} lines above)*\n\n${responseContent}`;
-    }
+    // Process response with interrupt-aware truncation
+    let responseContent = parseResponseWithInterrupts(aiData.response);
 
     // Add two trailing spaces to each line for hard line breaks in markdown
     responseContent = responseContent.split('\n').map(line => line + '  ').join('\n');
