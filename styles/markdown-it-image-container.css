@@ -1,8 +1,8 @@
 /* Scrollable Image Container for Tall/Mobile Screenshots */
 
 .image-scroll-container {
-  max-height: 600px;
-  max-width: 400px; /* Typical mobile width */
+  max-height: 667px; /* iPhone 8/SE screen height (375×667) */
+  max-width: fit-content;
   margin: 1.5rem auto;
   border: 1px solid var(--vscode-panel-border, #ddd);
   border-radius: 8px;
@@ -30,7 +30,7 @@
 }
 
 .image-scroll-inner {
-  max-height: 600px;
+  max-height: 667px; /* iPhone 8/SE screen height (375×667) */
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
@@ -38,7 +38,7 @@
 
 .image-scroll-inner img {
   display: block;
-  width: 100%;
+  width: auto;
   height: auto;
   margin: 0;
 }
@@ -83,18 +83,7 @@
   background: var(--vscode-scrollbarSlider-activeBackground, #555);
 }
 
-/* Responsive: wider on larger screens */
-@media (min-width: 768px) {
-  .image-scroll-container {
-    max-width: 450px;
-  }
-}
-
-@media (min-width: 1024px) {
-  .image-scroll-container {
-    max-width: 500px;
-  }
-}
+/* Responsive: no width constraints, image displays at natural size */
 
 /* High contrast mode support */
 .vscode-high-contrast .image-scroll-container {
