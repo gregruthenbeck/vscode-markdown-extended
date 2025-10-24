@@ -1,5 +1,4 @@
 import { MarkdownIt, Token } from "../@types/markdown-it";
-import * as yaml from 'js-yaml';
 
 const
     _marker = 58 /* ':' */,
@@ -86,6 +85,127 @@ function aiContainer(state: any, startLine: number, endLine: number, silent: boo
     return true;
 }
 
+/**
+ * Parse AI container YAML-like content.
+ * Tolerant of markdown content in literal blocks.
+ * Supports both structures:
+ *   1. versions: [{ prompt, model, response }]
+ *   2. Direct { prompt, model, response }
+ */
+function parseAiYaml(content: string): { prompt: string, model: string, response: string } {
+    // Check if using versions array structure
+    const useVersions = /^\s*versions:\s*$/m.test(content);
+
+    // Extract working content (either first version or direct content)
+    let workingContent = content;
+    if (useVersions) {
+        // Find content after "- " (first array item)
+        const versionMatch = content.match(/^\s*-\s+/m);
+        if (versionMatch) {
+            workingContent = content.substring(content.indexOf(versionMatch[0]) + versionMatch[0].length);
+        }
+    }
+
+    // Extract fields
+    const prompt = extractLiteralBlock(workingContent, 'prompt');
+    const model = extractSimpleField(workingContent, 'model');
+    const response = extractLiteralBlock(workingContent, 'response');
+
+    return { prompt, model, response };
+}
+
+/**
+ * Extract content from a literal block field (field: |)
+ * Handles indented content and dedents it.
+ */
+function extractLiteralBlock(content: string, fieldName: string): string {
+    // Match "fieldName: |" followed by indented lines
+    const regex = new RegExp(`^\\s*${fieldName}:\\s*\\|\\s*$`, 'm');
+    const match = content.match(regex);
+
+    if (!match) return '';
+
+    const startPos = match.index! + match[0].length;
+    const lines = content.substring(startPos).split('\n');
+
+    // Collect indented lines that belong to this literal block
+    const blockLines: string[] = [];
+    let baseIndent: number | null = null;
+
+    for (const line of lines) {
+        // Empty lines are part of the block
+        if (line.trim() === '') {
+            blockLines.push('');
+            continue;
+        }
+
+        // Measure indentation
+        const indent = line.match(/^(\s*)/)?.[1].length || 0;
+
+        // First non-empty line sets base indentation
+        if (baseIndent === null) {
+            if (indent === 0) break; // No indentation, not part of block
+            baseIndent = indent;
+            blockLines.push(line);
+            continue;
+        }
+
+        // If line has less indentation than base, block ends
+        if (indent < baseIndent) break;
+
+        blockLines.push(line);
+    }
+
+    // Dedent and join
+    return dedentLines(blockLines);
+}
+
+/**
+ * Extract a simple field value (field: value)
+ */
+function extractSimpleField(content: string, fieldName: string): string {
+    const regex = new RegExp(`^\\s*${fieldName}:\\s*(.+?)\\s*$`, 'm');
+    const match = content.match(regex);
+    return match ? match[1].trim() : '';
+}
+
+/**
+ * Remove common indentation from lines
+ */
+function dedentLines(lines: string[]): string {
+    if (lines.length === 0) return '';
+
+    // Find minimum indentation (ignoring empty lines)
+    let minIndent = Infinity;
+    for (const line of lines) {
+        if (line.trim() === '') continue;
+        const indent = line.match(/^(\s*)/)?.[1].length || 0;
+        minIndent = Math.min(minIndent, indent);
+    }
+
+    if (minIndent === Infinity) return lines.join('\n').trim();
+
+    // Remove common indentation
+    const dedented = lines.map(line => {
+        if (line.trim() === '') return '';
+        return line.substring(minIndent);
+    });
+
+    return dedented.join('\n').trim();
+}
+
+/**
+ * Limit text to n lines from start or end
+ */
+function limitLines(text: string, count: number, fromStart: boolean): string {
+    if (!text) return '';
+
+    const lines = text.split(/\r?\n/);
+    const limited = fromStart ? lines.slice(0, count) : lines.slice(-count);
+
+    return limited.join('\n');
+}
+
 function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): string {
     // Handle empty content
     if (!rawContent) {
@@ -95,23 +215,10 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
 `;
     }
 
-    // Parse YAML
-    let aiData: any;
+    // Parse YAML-like content
+    let aiData: { prompt: string, model: string, response: string };
     try {
-        const parsed = yaml.load(rawContent);
-
-        // Support both structures:
-        // 1. versions: [{ prompt, response }]
-        // 2. Direct { prompt, response }
-        if (parsed && typeof parsed === 'object') {
-            if (parsed.versions && Array.isArray(parsed.versions) && parsed.versions.length > 0) {
-                aiData = parsed.versions[0];
-            } else {
-                aiData = parsed;
-            }
-        } else {
-            throw new Error('YAML must contain an object');
-        }
+        aiData = parseAiYaml(rawContent);
     } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
         return `<div class="ai-container ai-error">
@@ -121,18 +228,15 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
 `;
     }
 
-    // Extract prompt and response
-    const prompt = aiData?.prompt || '';
-    const response = aiData?.response || '';
+    // Limit lines: first 10 of prompt, last 10 of response
+    const promptLimited = limitLines(aiData.prompt, 10, true);
+    const responseLimited = limitLines(aiData.response, 10, false);
 
-    // Take last 10 lines of response
-    const responseLines = normalizeAndSplitLines(response);
-    const last10Lines = responseLines.slice(-10);
     // Add two trailing spaces to each line for hard line breaks in markdown
-    const responseContent = last10Lines.map(line => line + '  ').join('\n');
+    const responseContent = responseLimited.split('\n').map(line => line + '  ').join('\n');
 
     // Render markdown (recursive)
-    const promptHtml = prompt ? md.render(prompt, env || {}) : '';
+    const promptHtml = promptLimited ? md.render(promptLimited, env || {}) : '';
     const responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
 
     // Generate fieldset HTML structure
@@ -143,13 +247,6 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
   <div class="ai-response">${responseHtml}</div>
 </fieldset>
 `;
-}
-
-function normalizeAndSplitLines(text: string): string[] {
-    if (!text) return [''];
-    const normalized = text.trim();
-    if (!normalized) return [''];
-    return normalized.split(/\r?\n/);
 }
 
 function escapeHtml(str: string): string {
