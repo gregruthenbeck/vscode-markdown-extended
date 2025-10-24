@@ -14,7 +14,7 @@ import imageSize from 'image-size';
 
 // Configuration
 const ASPECT_RATIO_THRESHOLD = 1.5; // Images taller than this ratio get scrollable container
-const DEBUG = true; // Set to false to disable diagnostic output in preview
+const DEBUG = false; // Set to true to enable diagnostic output in preview
 
 // Diagnostic tracking
 interface ImageDiagnostics {
