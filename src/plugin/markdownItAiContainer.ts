@@ -128,7 +128,8 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
     // Take last 10 lines of response
     const responseLines = normalizeAndSplitLines(response);
     const last10Lines = responseLines.slice(-10);
-    const responseContent = last10Lines.join('\n');
+    // Add two trailing spaces to each line for hard line breaks in markdown
+    const responseContent = last10Lines.map(line => line + '  ').join('\n');
 
     // Render markdown (recursive)
     const promptHtml = prompt ? md.render(prompt, env || {}) : '';
