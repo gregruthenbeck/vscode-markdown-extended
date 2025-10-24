@@ -117,6 +117,7 @@ function parseAiYaml(content: string): { prompt: string, model: string, response
 /**
  * Extract content from a literal block field (field: |)
  * Handles indented content and dedents it.
+ * Stops only at sibling YAML keys, not at markdown content with varying indentation.
  */
 function extractLiteralBlock(content: string, fieldName: string): string {
     // Match "fieldName: |" followed by indented lines
@@ -124,6 +125,10 @@ function extractLiteralBlock(content: string, fieldName: string): string {
     const match = content.match(regex);
 
     if (!match) return '';
+
+    // Determine the indent level of this field's key
+    const keyLine = match[0];
+    const keyIndent = (keyLine.match(/^(\s*)/) || ['', ''])[1].length;
 
     const startPos = match.index! + match[0].length;
     const lines = content.substring(startPos).split('\n');
@@ -140,9 +145,9 @@ function extractLiteralBlock(content: string, fieldName: string): string {
         }
 
         // Measure indentation
-        const indent = line.match(/^(\s*)/)?.[1].length || 0;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
 
-        // First non-empty line sets base indentation
+        // First non-empty line sets base indentation for content
         if (baseIndent === null) {
             if (indent === 0) break; // No indentation, not part of block
             baseIndent = indent;
@@ -150,9 +155,13 @@ function extractLiteralBlock(content: string, fieldName: string): string {
             continue;
         }
 
-        // If line has less indentation than base, block ends
-        if (indent < baseIndent) break;
+        // Stop if we hit a line with less indentation that looks like a YAML key
+        // Pattern: any indentation + word characters + colon + space/end
+        if (indent < baseIndent && /^\s*\w+:\s*/.test(line)) {
+            break; // Stop at next YAML key
+        }
 
+        // Include line regardless of indentation (markdown content can have any indent)
         blockLines.push(line);
     }
 
