@@ -196,14 +196,22 @@ function dedentLines(lines: string[]): string {
 
 /**
  * Limit text to n lines from start or end
+ * Returns limited text and count of skipped lines
  */
-function limitLines(text: string, count: number, fromStart: boolean): string {
-    if (!text) return '';
+function limitLines(text: string, count: number, fromStart: boolean): { text: string, skipped: number } {
+    if (!text) return { text: '', skipped: 0 };
 
     const lines = text.split(/\r?\n/);
-    const limited = fromStart ? lines.slice(0, count) : lines.slice(-count);
+    const totalLines = lines.length;
 
-    return limited.join('\n');
+    if (totalLines <= count) {
+        return { text, skipped: 0 };
+    }
+
+    const limited = fromStart ? lines.slice(0, count) : lines.slice(-count);
+    const skipped = totalLines - count;
+
+    return { text: limited.join('\n'), skipped };
 }
 
 function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): string {
@@ -229,14 +237,25 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
     }
 
     // Limit lines: first 10 of prompt, last 10 of response
-    const promptLimited = limitLines(aiData.prompt, 10, true);
-    const responseLimited = limitLines(aiData.response, 10, false);
+    const promptResult = limitLines(aiData.prompt, 10, true);
+    const responseResult = limitLines(aiData.response, 10, false);
+
+    // Add skip indicators
+    let promptContent = promptResult.text;
+    if (promptResult.skipped > 0) {
+        promptContent += `\n\n*... (${promptResult.skipped} more lines)*`;
+    }
+
+    let responseContent = responseResult.text;
+    if (responseResult.skipped > 0) {
+        responseContent = `*... (${responseResult.skipped} lines above)*\n\n${responseContent}`;
+    }
 
     // Add two trailing spaces to each line for hard line breaks in markdown
-    const responseContent = responseLimited.split('\n').map(line => line + '  ').join('\n');
+    responseContent = responseContent.split('\n').map(line => line + '  ').join('\n');
 
     // Render markdown (recursive)
-    const promptHtml = promptLimited ? md.render(promptLimited, env || {}) : '';
+    const promptHtml = promptContent ? md.render(promptContent, env || {}) : '';
     const responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
 
     // Generate fieldset HTML structure
