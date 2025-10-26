@@ -13,8 +13,16 @@ import imageSize from 'image-size';
  */
 
 // Configuration
-const ASPECT_RATIO_THRESHOLD = 1.5; // Images taller than this ratio get scrollable container
+const MAX_HEIGHT = 380; // Maximum display height in pixels
 const DEBUG = false; // Set to true to enable diagnostic output in preview
+
+// Display modes for images
+type ImageDisplayMode =
+    | { mode: 'scale'; factor: 0.5 | 0.75 }
+    | { mode: 'scroll' }
+    | { mode: 'normal' }
+    | { mode: 'opt-out' }
+    | { mode: 'error'; error: string };
 
 // Diagnostic tracking
 interface ImageDiagnostics {
@@ -23,8 +31,7 @@ interface ImageDiagnostics {
     resolvedPath?: string;
     fileExists?: boolean;
     dimensions?: { width: number; height: number };
-    aspectRatio?: number;
-    decision: 'TALL' | 'NORMAL' | 'ERROR' | 'OPT-OUT';
+    displayMode?: ImageDisplayMode;
     error?: string;
 }
 
@@ -53,46 +60,67 @@ export function MarkdownItImageContainer(md: MarkdownIt) {
         // Initialize diagnostics
         const diag: ImageDiagnostics = {
             src,
-            title,
-            decision: 'NORMAL'
+            title
         };
 
         // Check for opt-out
         if (title === 'no-scroll') {
-            diag.decision = 'OPT-OUT';
-            // fs.appendFileSync(logFile, `  Decision: OPT-OUT\n`);
+            const normalImg = defaultRenderer(tokens, idx, options, env, self);
+            diag.displayMode = { mode: 'opt-out' };
+            return wrapWithDiagnostics(normalImg, diag);
+        }
+
+        // Determine display mode based on image dimensions
+        const displayMode = getImageDisplayMode(src, env as MarkdownItEnv, diag);
+        diag.displayMode = displayMode;
+
+        // Handle different display modes
+        if (displayMode.mode === 'error' || displayMode.mode === 'normal') {
             const normalImg = defaultRenderer(tokens, idx, options, env, self);
             return wrapWithDiagnostics(normalImg, diag);
         }
 
-        // Check if image is tall based on actual dimensions
-        const { isTall } = checkIfTallImage(src, env as MarkdownItEnv, diag);
+        if (displayMode.mode === 'scale') {
+            // Render scaled image with inline width/height
+            const scaleFactor = displayMode.factor;
+            const dimensionsText = diag.dimensions
+                ? `${diag.dimensions.width}×${diag.dimensions.height}`
+                : 'unknown';
 
-        // fs.appendFileSync(logFile, `  Decision: ${diag.decision} isTall=${isTall} aspectRatio=${diag.aspectRatio} error="${diag.error || 'none'}"\n`);
+            // Get the img tag and add width style
+            const imgTag = defaultRenderer(tokens, idx, options, env, self);
+            const scaledWidth = diag.dimensions ? Math.round(diag.dimensions.width * scaleFactor) : 'auto';
+            const styledImgTag = imgTag.replace('<img ', `<img style="width: ${scaledWidth}px; height: auto;" `);
 
-        // Render normal image if not tall or error
-        if (!isTall) {
-            const normalImg = defaultRenderer(tokens, idx, options, env, self);
-            return wrapWithDiagnostics(normalImg, diag);
+            const html = `
+<div class="image-scale-container">
+    ${DEBUG ? `<div class="image-debug-badge">SCALE: ${scaleFactor} (${dimensionsText})</div>` : ''}
+    ${styledImgTag}
+</div>`;
+            return wrapWithDiagnostics(html, diag);
         }
 
-        // Render tall image in scrollable container
-        const imgTag = defaultRenderer(tokens, idx, options, env, self);
-        const aspectRatioText = diag.aspectRatio ? diag.aspectRatio.toFixed(2) : '?';
-        const dimensionsText = diag.dimensions
-            ? `${diag.dimensions.width}×${diag.dimensions.height}`
-            : 'unknown';
+        if (displayMode.mode === 'scroll') {
+            // Render in scrollable container
+            const imgTag = defaultRenderer(tokens, idx, options, env, self);
+            const dimensionsText = diag.dimensions
+                ? `${diag.dimensions.width}×${diag.dimensions.height}`
+                : 'unknown';
 
-        const html = `
+            const html = `
 <div class="image-scroll-container">
-    ${DEBUG ? `<div class="image-debug-badge">TALL: ${aspectRatioText} (${dimensionsText})</div>` : ''}
+    ${DEBUG ? `<div class="image-debug-badge">SCROLL (${dimensionsText})</div>` : ''}
     <div class="image-scroll-inner">
         ${imgTag}
     </div>
     <span class="image-scroll-hint">↕ Scroll to view full image</span>
 </div>`;
+            return wrapWithDiagnostics(html, diag);
+        }
 
-        return wrapWithDiagnostics(html, diag);
+        // Fallback
+        const normalImg = defaultRenderer(tokens, idx, options, env, self);
+        return wrapWithDiagnostics(normalImg, diag);
     };
     console.log('🔵 Image renderer has been overridden with tall image detection!');
 }
@@ -105,6 +133,12 @@ function wrapWithDiagnostics(html: string, diag: ImageDiagnostics): string {
         return html;
     }
 
+    const modeStr = diag.displayMode
+        ? (diag.displayMode.mode === 'scale'
+            ? `scale(${diag.displayMode.factor})`
+            : diag.displayMode.mode)
+        : 'unknown';
+
     const comments = [
         '<!-- IMAGE PLUGIN DEBUG -->',
         `<!-- src: ${diag.src} -->`,
@@ -112,8 +146,7 @@ function wrapWithDiagnostics(html: string, diag: ImageDiagnostics): string {
         diag.resolvedPath ? `<!-- resolved: ${diag.resolvedPath} -->` : '<!-- resolved: FAILED -->',
         diag.fileExists !== undefined ? `<!-- file exists: ${diag.fileExists} -->` : '',
         diag.dimensions ? `<!-- dimensions: ${diag.dimensions.width}×${diag.dimensions.height} -->` : '<!-- dimensions: FAILED -->',
-        diag.aspectRatio !== undefined ? `<!-- aspect ratio: ${diag.aspectRatio.toFixed(2)} -->` : '',
-        `<!-- decision: ${diag.decision} -->`,
+        `<!-- display mode: ${modeStr} -->`,
         diag.error ? `<!-- error: ${diag.error} -->` : '',
         '<!-- /IMAGE PLUGIN DEBUG -->'
     ].filter(c => c).join('\n');
@@ -122,9 +155,13 @@ function wrapWithDiagnostics(html: string, diag: ImageDiagnostics): string {
 }
 
 /**
- * Determine if an image is "tall" based on its actual dimensions
+ * Determine optimal display mode for an image based on its dimensions
+ * Logic:
+ * - If height * 0.75 <= MAX_HEIGHT → scale to 0.75
+ * - Else if height * 0.5 <= MAX_HEIGHT → scale to 0.5
+ * - Else → scroll container
  */
-function checkIfTallImage(src: string, env: MarkdownItEnv, diag: ImageDiagnostics): { isTall: boolean } {
+function getImageDisplayMode(src: string, env: MarkdownItEnv, diag: ImageDiagnostics): ImageDisplayMode {
     try {
         // Resolve image path to absolute path
         const imagePath = resolveImagePath(src, env);
@@ -132,15 +169,13 @@ function checkIfTallImage(src: string, env: MarkdownItEnv, diag: ImageDiagnostic
 
         if (!imagePath) {
             diag.error = 'Path resolution failed';
-            diag.decision = 'ERROR';
-            return { isTall: false };
+            return { mode: 'error', error: 'Path resolution failed' };
         }
 
         diag.fileExists = fs.existsSync(imagePath);
         if (!diag.fileExists) {
             diag.error = 'File does not exist';
-            diag.decision = 'ERROR';
-            return { isTall: false };
+            return { mode: 'error', error: 'File does not exist' };
         }
 
         // Read image file as buffer
@@ -150,26 +185,24 @@ function checkIfTallImage(src: string, env: MarkdownItEnv, diag: ImageDiagnostic
         const dimensions = imageSize(buffer);
         if (!dimensions.width || !dimensions.height) {
             diag.error = 'Invalid dimensions';
-            diag.decision = 'ERROR';
-            return { isTall: false };
+            return { mode: 'error', error: 'Invalid dimensions' };
         }
 
         diag.dimensions = { width: dimensions.width, height: dimensions.height };
+        const height = dimensions.height;
 
-        // Calculate aspect ratio (height / width)
-        const aspectRatio = dimensions.height / dimensions.width;
-        diag.aspectRatio = aspectRatio;
-
-        // Consider "tall" if height is significantly greater than width
-        const isTall = aspectRatio > ASPECT_RATIO_THRESHOLD;
-        diag.decision = isTall ? 'TALL' : 'NORMAL';
-
-        return { isTall };
+        // Determine display mode based on height
+        if (height * 0.75 <= MAX_HEIGHT) {
+            return { mode: 'scale', factor: 0.75 };
+        } else if (height * 0.5 <= MAX_HEIGHT) {
+            return { mode: 'scale', factor: 0.5 };
+        } else {
+            return { mode: 'scroll' };
+        }
     } catch (error) {
-        // If we can't read the image, don't apply container
+        // If we can't read the image, render normally
         diag.error = error instanceof Error ? error.message : String(error);
-        diag.decision = 'ERROR';
-        return { isTall: false };
+        return { mode: 'error', error: diag.error };
     }
 }
 

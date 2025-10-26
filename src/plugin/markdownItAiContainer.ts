@@ -72,8 +72,8 @@ function aiContainer(state: any, startLine: number, endLine: number, silent: boo
     const contentEnd = state.bMarks[closingLine];
     const rawContent = state.src.slice(contentStart, contentEnd).trim();
 
-    // Generate HTML from YAML content
-    const htmlContent = generateAiContainerHTML(rawContent, state.md, state.env);
+    // Generate HTML from YAML content with source line mapping
+    const htmlContent = generateAiContainerHTML(rawContent, state.md, state.env, startLine);
 
     // Create html_block token with our generated HTML
     let token = state.push('html_block', '', 0);
@@ -344,10 +344,10 @@ function parseResponseWithInterrupts(text: string): string {
     return segments.join('\n\n');
 }
 
-function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): string {
+function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, sourceLine: number): string {
     // Handle empty content
     if (!rawContent) {
-        return `<div class="ai-container ai-error">
+        return `<div class="ai-container ai-error" data-line="${sourceLine}">
   <p><strong>Empty AI container</strong> (no YAML content)</p>
 </div>
 `;
@@ -359,7 +359,7 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
         aiData = parseAiYaml(rawContent);
     } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
-        return `<div class="ai-container ai-error">
+        return `<div class="ai-container ai-error" data-line="${sourceLine}">
   <p><strong>Error parsing AI container YAML:</strong></p>
   <pre>${escapeHtml(errorMsg)}</pre>
 </div>
@@ -383,8 +383,8 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any): 
     const promptHtml = promptContent ? md.render(promptContent, env || {}) : '';
     const responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
 
-    // Generate fieldset HTML structure
-    return `<fieldset class="ai-container">
+    // Generate fieldset HTML structure with source line mapping for VSCode sync
+    return `<fieldset class="ai-container" data-line="${sourceLine}">
   <legend>ai</legend>
   <div class="ai-prompt">${promptHtml}</div>
   <hr class="ai-separator">
