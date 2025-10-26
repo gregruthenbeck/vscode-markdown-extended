@@ -1,4 +1,21 @@
 import { MarkdownIt, Token } from "../@types/markdown-it";
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Debug logging to file
+const DEBUG_LOG_FILE = path.join(__dirname, '../../debug-data-line.log');
+function debugLog(message: string) {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(DEBUG_LOG_FILE, `[${timestamp}] ${message}\n`);
+    console.log(message);  // Also log to console for convenience
+}
+
+// Clear log file on module load
+try {
+    fs.writeFileSync(DEBUG_LOG_FILE, `=== Debug Log Started at ${new Date().toISOString()} ===\n\n`);
+} catch (e) {
+    console.error('Failed to initialize debug log file:', e);
+}
 
 const
     _marker = 58 /* ':' */,
@@ -95,6 +112,13 @@ interface ParsedAiData {
     prompt: ParsedAiField;
     model: ParsedAiField;
     response: ParsedAiField;
+}
+
+// Segment of truncated content with original line number tracking
+interface TruncatedSegment {
+    text: string;
+    lineStart: number;  // Line number relative to content start (0-indexed), -1 for skip markers
+    lineEnd: number;    // Line number relative to content start (inclusive), -1 for skip markers
 }
 
 /**
@@ -236,51 +260,155 @@ function dedentLines(lines: string[]): string {
 
 /**
  * Limit text to n lines from start or end
- * Returns limited text and count of skipped lines
+ * Returns segments with original line number tracking
  */
-function limitLines(text: string, count: number, fromStart: boolean): { text: string, skipped: number } {
-    if (!text) return { text: '', skipped: 0 };
+function limitLines(text: string, count: number, fromStart: boolean): TruncatedSegment[] {
+    if (!text) return [];
 
     const lines = text.split(/\r?\n/);
     const totalLines = lines.length;
 
     if (totalLines <= count) {
-        return { text, skipped: 0 };
+        // No truncation needed
+        return [{ text, lineStart: 0, lineEnd: totalLines - 1 }];
     }
 
-    const limited = fromStart ? lines.slice(0, count) : lines.slice(-count);
     const skipped = totalLines - count;
+    const segments: TruncatedSegment[] = [];
 
-    return { text: limited.join('\n'), skipped };
+    if (fromStart) {
+        // Keep first N lines
+        const keptLines = lines.slice(0, count);
+        segments.push({ text: keptLines.join('\n'), lineStart: 0, lineEnd: count - 1 });
+        segments.push({ text: `*... (${skipped} more lines)*`, lineStart: -1, lineEnd: -1 });
+    } else {
+        // Keep last N lines
+        const startLine = totalLines - count;
+        const keptLines = lines.slice(-count);
+        segments.push({ text: `*... (${skipped} lines above)*`, lineStart: -1, lineEnd: -1 });
+        segments.push({ text: keptLines.join('\n'), lineStart: startLine, lineEnd: totalLines - 1 });
+    }
+
+    return segments;
 }
 
 /**
  * Truncate text showing first N and last M lines
- * Returns text with skip indicator in middle if truncated
+ * Returns segments with original line number tracking
  */
-function truncateMiddle(text: string, first: number, last: number): string {
-    if (!text) return '';
+function truncateMiddle(text: string, first: number, last: number): TruncatedSegment[] {
+    if (!text) return [];
 
     const lines = text.split(/\r?\n/);
     const totalLines = lines.length;
 
     if (totalLines <= first + last) {
-        return text;
+        // No truncation needed
+        return [{ text, lineStart: 0, lineEnd: totalLines - 1 }];
     }
 
     const firstLines = lines.slice(0, first);
+    const lastStartLine = totalLines - last;
     const lastLines = lines.slice(-last);
     const skipped = totalLines - first - last;
 
-    return [...firstLines, `*... (${skipped} lines)*`, ...lastLines].join('\n');
+    return [
+        { text: firstLines.join('\n'), lineStart: 0, lineEnd: first - 1 },
+        { text: `*... (${skipped} lines)*`, lineStart: -1, lineEnd: -1 },
+        { text: lastLines.join('\n'), lineStart: lastStartLine, lineEnd: totalLines - 1 }
+    ];
+}
+
+/**
+ * Adjust segment line numbers by adding an offset
+ * Used when processing sub-slices of content to map back to original line numbers
+ */
+function adjustSegmentLineNumbers(segments: TruncatedSegment[], offset: number): TruncatedSegment[] {
+    return segments.map(seg => ({
+        text: seg.text,
+        lineStart: seg.lineStart >= 0 ? seg.lineStart + offset : -1,
+        lineEnd: seg.lineEnd >= 0 ? seg.lineEnd + offset : -1
+    }));
+}
+
+/**
+ * Render markdown content with adjusted line numbers for nested rendering.
+ *
+ * VSCode's pluginSourceMap adds data-line attributes with relative line numbers (0, 1, 2...).
+ * This function renders the content normally, then adjusts all data-line values by adding
+ * the lineOffset to convert them to absolute file positions.
+ *
+ * @param md - The MarkdownIt instance
+ * @param content - Markdown content to render
+ * @param lineOffset - Absolute line number (zero-based) where content starts in the original file
+ * @param env - Markdown-it environment object
+ * @returns Rendered HTML with correct absolute data-line attributes
+ */
+function renderWithLineOffset(md: MarkdownIt, content: string, lineOffset: number, env: any): string {
+    if (!content) return '';
+
+    // Render normally (VSCode's pluginSourceMap generates data-line="0", "1", "2"...)
+    const html = md.render(content, env);
+
+    // Adjust all data-line values by adding the lineOffset
+    // This converts relative line numbers (0, 1, 2...) to absolute file positions
+    const adjustedHtml = html.replace(/data-line="(\d+)"/g, (match, lineNum) => {
+        const absoluteLine = parseInt(lineNum, 10) + lineOffset;
+        return `data-line="${absoluteLine}"`;
+    });
+
+    return adjustedHtml;
+}
+
+/**
+ * Render segments with correct line number offsets
+ * Skip markers are rendered as plain HTML without data-line attributes
+ */
+function renderSegments(md: MarkdownIt, segments: TruncatedSegment[], baseLineOffset: number, env: any): string {
+    debugLog(`\n🔵 renderSegments: baseLineOffset=${baseLineOffset}`);
+
+    const htmlParts: string[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        debugLog(`  [${i}] lineStart=${segment.lineStart}`);
+
+        if (segment.lineStart < 0) {
+            // Skip marker - render as plain HTML without data-line
+            debugLog(`    → Skip marker (no data-line)`);
+            htmlParts.push(`<p class="truncation-marker">${escapeHtml(segment.text)}</p>`);
+        } else {
+            // Normal content - render with correct line offset
+            const calculatedOffset = baseLineOffset + segment.lineStart;
+            debugLog(`    → Offset: ${baseLineOffset} + ${segment.lineStart} = ${calculatedOffset}`);
+
+            // Add trailing spaces for hard line breaks in markdown
+            const textWithBreaks = segment.text.split('\n').map(line => line + '  ').join('\n');
+            const html = renderWithLineOffset(md, textWithBreaks, calculatedOffset, env);
+
+            // Extract and log all data-line values in the rendered HTML
+            const dataLineMatches = html.match(/data-line="(\d+)"/g) || [];
+            if (dataLineMatches.length > 0) {
+                debugLog(`    → data-line values: ${dataLineMatches.join(', ')}`);
+            } else {
+                debugLog(`    → WARNING: No data-line attributes found in HTML!`);
+            }
+
+            htmlParts.push(html);
+        }
+    }
+
+    return htmlParts.join('\n');
 }
 
 /**
  * Process response field that may contain **Interrupt:** markers
- * Applies different truncation rules to different segments
+ * Applies different truncation rules to different segments with original line tracking
  */
-function parseResponseWithInterrupts(text: string): string {
-    if (!text) return '';
+function parseResponseWithInterrupts(text: string): TruncatedSegment[] {
+    debugLog(`\n🟢 parseResponseWithInterrupts: ${text.length} chars, ${text.split(/\r?\n/).length} lines`);
+
+    if (!text) return [];
 
     const lines = text.split(/\r?\n/);
     const interruptMarker = /^\s*\*\*Interrupt:\*\*\s*$/;
@@ -305,15 +433,11 @@ function parseResponseWithInterrupts(text: string): string {
 
     // If no interrupts, use simple last 10 lines truncation
     if (interrupts.length === 0) {
-        const result = limitLines(text, 10, false);
-        if (result.skipped > 0) {
-            return `*... (${result.skipped} lines above)*\n\n${result.text}`;
-        }
-        return result.text;
+        return limitLines(text, 10, false);
     }
 
     // Build segments with appropriate truncation
-    const segments: string[] = [];
+    const segments: TruncatedSegment[] = [];
     let currentPos = 0;
 
     for (let i = 0; i < interrupts.length; i++) {
@@ -322,57 +446,64 @@ function parseResponseWithInterrupts(text: string): string {
         // Segment before interrupt (first 4 + last 8)
         if (interruptLine > currentPos) {
             const segmentLines = lines.slice(currentPos, interruptLine);
-            const segmentText = truncateMiddle(segmentLines.join('\n'), 4, 8);
-            if (segmentText) segments.push(segmentText);
+            const segmentText = segmentLines.join('\n');
+            const truncatedSegments = truncateMiddle(segmentText, 4, 8);
+            segments.push(...adjustSegmentLineNumbers(truncatedSegments, currentPos));
         }
 
         // Add the **Interrupt:** marker itself
-        segments.push(lines[interruptLine]);
+        segments.push({
+            text: lines[interruptLine],
+            lineStart: interruptLine,
+            lineEnd: interruptLine
+        });
 
         // Interrupt content (first 10 lines)
         if (markerLine > 0) {
-            const interruptContent = lines.slice(interruptLine + 1, markerLine);
+            const interruptContentStart = interruptLine + 1;
+            const interruptContent = lines.slice(interruptContentStart, markerLine);
             const contentText = interruptContent.join('\n').trim();
             if (contentText) {
-                const truncated = limitLines(contentText, 10, true);
-                let interruptSegment = truncated.text;
-                if (truncated.skipped > 0) {
-                    interruptSegment += `\n\n*... (${truncated.skipped} more lines)*`;
-                }
-                segments.push(interruptSegment);
+                const truncatedSegments = limitLines(contentText, 10, true);
+                segments.push(...adjustSegmentLineNumbers(truncatedSegments, interruptContentStart));
             }
 
             // Add the marker (e.g., **Thinking:**)
-            segments.push(lines[markerLine]);
+            segments.push({
+                text: lines[markerLine],
+                lineStart: markerLine,
+                lineEnd: markerLine
+            });
 
             // Determine where next segment starts
             const nextInterruptLine = interrupts[i + 1]?.interruptLine ?? lines.length;
 
             // Content after marker until next interrupt or end (first 4 + last 8)
             if (nextInterruptLine > markerLine + 1) {
-                const afterMarkerLines = lines.slice(markerLine + 1, nextInterruptLine);
-                const afterMarkerText = truncateMiddle(afterMarkerLines.join('\n'), 4, 8);
-                if (afterMarkerText) segments.push(afterMarkerText);
+                const afterMarkerStart = markerLine + 1;
+                const afterMarkerLines = lines.slice(afterMarkerStart, nextInterruptLine);
+                const afterMarkerText = afterMarkerLines.join('\n');
+                const truncatedSegments = truncateMiddle(afterMarkerText, 4, 8);
+                segments.push(...adjustSegmentLineNumbers(truncatedSegments, afterMarkerStart));
             }
 
             currentPos = nextInterruptLine;
         } else {
             // No marker found after interrupt, treat rest as interrupt content
-            const remaining = lines.slice(interruptLine + 1);
+            const remainingStart = interruptLine + 1;
+            const remaining = lines.slice(remainingStart);
             const remainingText = remaining.join('\n').trim();
             if (remainingText) {
-                const truncated = limitLines(remainingText, 10, true);
-                let interruptSegment = truncated.text;
-                if (truncated.skipped > 0) {
-                    interruptSegment += `\n\n*... (${truncated.skipped} more lines)*`;
-                }
-                segments.push(interruptSegment);
+                const truncatedSegments = limitLines(remainingText, 10, true);
+                segments.push(...adjustSegmentLineNumbers(truncatedSegments, remainingStart));
             }
             currentPos = lines.length;
         }
     }
 
-    return segments.join('\n\n');
+    debugLog(`🟢 Created ${segments.length} segments: ${segments.map((s, i) => `[${i}]:${s.lineStart}`).join(', ')}`);
+
+    return segments;
 }
 
 function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, sourceLine: number): string {
@@ -401,28 +532,14 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, s
     const promptLine = sourceLine + 1 + aiData.prompt.lineOffset;
     const responseLine = sourceLine + 1 + aiData.response.lineOffset;
 
-    // Limit lines: first 10 of prompt
-    const promptResult = limitLines(aiData.prompt.content, 10, true);
-    let promptContent = promptResult.text;
-    if (promptResult.skipped > 0) {
-        promptContent += `\n\n*... (${promptResult.skipped} more lines)*`;
-    }
+    // Get truncated segments with original line tracking
+    const promptSegments = limitLines(aiData.prompt.content, 10, true);
+    const responseSegments = parseResponseWithInterrupts(aiData.response.content);
 
-    // Find interrupt markers in original response for line mapping
-    const interruptLines = findInterruptLineNumbers(aiData.response.content);
-
-    // Process response with interrupt-aware truncation
-    let responseContent = parseResponseWithInterrupts(aiData.response.content);
-
-    // Add two trailing spaces to each line for hard line breaks in markdown
-    responseContent = responseContent.split('\n').map(line => line + '  ').join('\n');
-
-    // Render markdown (recursive)
-    const promptHtml = promptContent ? md.render(promptContent, env || {}) : '';
-    let responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
-
-    // Inject data-line attributes into Interrupt markers in rendered HTML
-    responseHtml = addDataLineToInterrupts(responseHtml, interruptLines, responseLine);
+    // Render segments with correct absolute line numbers
+    // The +1 accounts for content starting the line after "prompt: |" / "response: |"
+    const promptHtml = renderSegments(md, promptSegments, promptLine + 1, env || {});
+    const responseHtml = renderSegments(md, responseSegments, responseLine + 1, env || {});
 
     // Generate fieldset HTML structure with granular source line mapping for VSCode sync
     return `<fieldset class="ai-container" data-line="${sourceLine}">
@@ -432,54 +549,6 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, s
   <div class="ai-response" data-line="${responseLine}">${responseHtml}</div>
 </fieldset>
 `;
-}
-
-/**
- * Find line numbers of interrupt markers in response content
- */
-function findInterruptLineNumbers(responseText: string): number[] {
-    if (!responseText) return [];
-
-    const lines = responseText.split(/\r?\n/);
-    const interruptMarker = /^\s*\*\*Interrupt:\*\*\s*$/;
-    const interruptLines: number[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-        if (interruptMarker.test(lines[i])) {
-            interruptLines.push(i); // Line offset within response content
-        }
-    }
-
-    return interruptLines;
-}
-
-/**
- * Add data-line attributes to Interrupt markers in rendered HTML
- */
-function addDataLineToInterrupts(html: string, interruptLineOffsets: number[], responseStartLine: number): string {
-    if (interruptLineOffsets.length === 0) return html;
-
-    // After markdown rendering, **Interrupt:** becomes <p><strong>Interrupt:</strong></p>
-    // We need to add data-line to these elements
-
-    // Replace each occurrence with a version that has data-line
-    let modifiedHtml = html;
-    let interruptIndex = 0;
-
-    // Pattern to match <p><strong>Interrupt:</strong></p> or similar
-    const interruptPattern = /(<p[^>]*>)<strong>Interrupt:<\/strong>(<\/p>)/g;
-
-    modifiedHtml = modifiedHtml.replace(interruptPattern, (match, openTag, closeTag) => {
-        if (interruptIndex < interruptLineOffsets.length) {
-            const lineOffset = interruptLineOffsets[interruptIndex];
-            const absoluteLine = responseStartLine + 1 + lineOffset; // +1 because responseLine points to "response:", content starts next line
-            interruptIndex++;
-            return `${openTag}<strong data-line="${absoluteLine}">Interrupt:</strong>${closeTag}`;
-        }
-        return match;
-    });
-
-    return modifiedHtml;
 }
 
 function escapeHtml(str: string): string {
