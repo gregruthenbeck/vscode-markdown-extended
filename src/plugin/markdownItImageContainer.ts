@@ -51,6 +51,15 @@ export function MarkdownItImageContainer(md: MarkdownIt) {
         const src = token.attrGet('src') || '';
         const title = token.attrGet('title') || '';
 
+        // Get line number for VSCode preview sync (images are inline, check parent block)
+        let lineNumber: number | undefined;
+        if (token.map) {
+            lineNumber = token.map[0];
+        } else if (idx > 0 && tokens[idx - 1]?.map) {
+            // Image is inline, use containing block's line
+            lineNumber = tokens[idx - 1].map[0];
+        }
+
         // Debug logging (disabled):
         // fs.appendFileSync(logFile, `IMAGE: src="${src}" title="${title}"\n`);
         // fs.appendFileSync(logFile, `  env.htmlExporter=${env?.htmlExporter ? 'exists' : 'undefined'}\n`);
@@ -92,8 +101,9 @@ export function MarkdownItImageContainer(md: MarkdownIt) {
             const scaledWidth = diag.dimensions ? Math.round(diag.dimensions.width * scaleFactor) : 'auto';
             const styledImgTag = imgTag.replace('<img ', `<img style="width: ${scaledWidth}px; height: auto;" `);
 
+            const dataLineAttr = lineNumber !== undefined ? ` data-line="${lineNumber}"` : '';
             const html = `
-<div class="image-scale-container">
+<div class="image-scale-container"${dataLineAttr}>
     ${DEBUG ? `<div class="image-debug-badge">SCALE: ${scaleFactor} (${dimensionsText})</div>` : ''}
     ${styledImgTag}
 </div>`;
@@ -107,8 +117,9 @@ export function MarkdownItImageContainer(md: MarkdownIt) {
                 ? `${diag.dimensions.width}×${diag.dimensions.height}`
                 : 'unknown';
 
+            const dataLineAttr = lineNumber !== undefined ? ` data-line="${lineNumber}"` : '';
             const html = `
-<div class="image-scroll-container">
+<div class="image-scroll-container"${dataLineAttr}>
     ${DEBUG ? `<div class="image-debug-badge">SCROLL (${dimensionsText})</div>` : ''}
     <div class="image-scroll-inner">
         ${imgTag}

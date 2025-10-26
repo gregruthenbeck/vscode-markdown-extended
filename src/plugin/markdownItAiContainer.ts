@@ -85,6 +85,18 @@ function aiContainer(state: any, startLine: number, endLine: number, silent: boo
     return true;
 }
 
+// Parsed AI data with line offsets for source mapping
+interface ParsedAiField {
+    content: string;
+    lineOffset: number; // Line offset relative to start of rawContent
+}
+
+interface ParsedAiData {
+    prompt: ParsedAiField;
+    model: ParsedAiField;
+    response: ParsedAiField;
+}
+
 /**
  * Parse AI container YAML-like content.
  * Tolerant of markdown content in literal blocks.
@@ -92,39 +104,46 @@ function aiContainer(state: any, startLine: number, endLine: number, silent: boo
  *   1. versions: [{ prompt, model, response }]
  *   2. Direct { prompt, model, response }
  */
-function parseAiYaml(content: string): { prompt: string, model: string, response: string } {
+function parseAiYaml(content: string): ParsedAiData {
     // Check if using versions array structure
     const useVersions = /^\s*versions:\s*$/m.test(content);
 
     // Extract working content (either first version or direct content)
     let workingContent = content;
+    let baseLineOffset = 0;
+
     if (useVersions) {
         // Find content after "- " (first array item)
         const versionMatch = content.match(/^\s*-\s+/m);
         if (versionMatch) {
+            const beforeDash = content.substring(0, content.indexOf(versionMatch[0]));
+            // Count newlines, not array length (the dash is on the SAME line as content after it)
+            baseLineOffset = beforeDash.split('\n').length - 1;
             workingContent = content.substring(content.indexOf(versionMatch[0]) + versionMatch[0].length);
         }
     }
 
-    // Extract fields
-    const prompt = extractLiteralBlock(workingContent, 'prompt');
-    const model = extractSimpleField(workingContent, 'model');
-    const response = extractLiteralBlock(workingContent, 'response');
+    // Extract fields with line offsets
+    const prompt = extractLiteralBlockWithOffset(workingContent, 'prompt', baseLineOffset);
+    const model = extractSimpleFieldWithOffset(workingContent, 'model', baseLineOffset);
+    const response = extractLiteralBlockWithOffset(workingContent, 'response', baseLineOffset);
 
     return { prompt, model, response };
 }
 
 /**
- * Extract content from a literal block field (field: |)
- * Handles indented content and dedents it.
- * Stops only at sibling YAML keys, not at markdown content with varying indentation.
+ * Extract content from a literal block field (field: |) with line offset tracking
  */
-function extractLiteralBlock(content: string, fieldName: string): string {
+function extractLiteralBlockWithOffset(content: string, fieldName: string, baseLineOffset: number): ParsedAiField {
     // Match "fieldName: |" followed by indented lines
     const regex = new RegExp(`^\\s*${fieldName}:\\s*\\|\\s*$`, 'm');
     const match = content.match(regex);
 
-    if (!match) return '';
+    if (!match) return { content: '', lineOffset: 0 };
+
+    // Calculate line offset where this field appears
+    const beforeMatch = content.substring(0, match.index!);
+    const lineOffset = baseLineOffset + beforeMatch.split('\n').length - 1;
 
     // Determine the indent level of this field's key
     const keyLine = match[0];
@@ -166,16 +185,28 @@ function extractLiteralBlock(content: string, fieldName: string): string {
     }
 
     // Dedent and join
-    return dedentLines(blockLines);
+    return {
+        content: dedentLines(blockLines),
+        lineOffset
+    };
 }
 
 /**
- * Extract a simple field value (field: value)
+ * Extract a simple field value (field: value) with line offset tracking
  */
-function extractSimpleField(content: string, fieldName: string): string {
+function extractSimpleFieldWithOffset(content: string, fieldName: string, baseLineOffset: number): ParsedAiField {
     const regex = new RegExp(`^\\s*${fieldName}:\\s*(.+?)\\s*$`, 'm');
     const match = content.match(regex);
-    return match ? match[1].trim() : '';
+
+    if (!match) return { content: '', lineOffset: 0 };
+
+    const beforeMatch = content.substring(0, match.index!);
+    const lineOffset = baseLineOffset + beforeMatch.split('\n').length - 1;
+
+    return {
+        content: match[1].trim(),
+        lineOffset
+    };
 }
 
 /**
@@ -353,8 +384,8 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, s
 `;
     }
 
-    // Parse YAML-like content
-    let aiData: { prompt: string, model: string, response: string };
+    // Parse YAML-like content with line offsets
+    let aiData: ParsedAiData;
     try {
         aiData = parseAiYaml(rawContent);
     } catch (e) {
@@ -366,31 +397,89 @@ function generateAiContainerHTML(rawContent: string, md: MarkdownIt, env: any, s
 `;
     }
 
+    // Calculate absolute line numbers (sourceLine is opening :::, add 1 to skip it)
+    const promptLine = sourceLine + 1 + aiData.prompt.lineOffset;
+    const responseLine = sourceLine + 1 + aiData.response.lineOffset;
+
     // Limit lines: first 10 of prompt
-    const promptResult = limitLines(aiData.prompt, 10, true);
+    const promptResult = limitLines(aiData.prompt.content, 10, true);
     let promptContent = promptResult.text;
     if (promptResult.skipped > 0) {
         promptContent += `\n\n*... (${promptResult.skipped} more lines)*`;
     }
 
+    // Find interrupt markers in original response for line mapping
+    const interruptLines = findInterruptLineNumbers(aiData.response.content);
+
     // Process response with interrupt-aware truncation
-    let responseContent = parseResponseWithInterrupts(aiData.response);
+    let responseContent = parseResponseWithInterrupts(aiData.response.content);
 
     // Add two trailing spaces to each line for hard line breaks in markdown
     responseContent = responseContent.split('\n').map(line => line + '  ').join('\n');
 
     // Render markdown (recursive)
     const promptHtml = promptContent ? md.render(promptContent, env || {}) : '';
-    const responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
+    let responseHtml = responseContent ? md.render(responseContent, env || {}) : '';
 
-    // Generate fieldset HTML structure with source line mapping for VSCode sync
+    // Inject data-line attributes into Interrupt markers in rendered HTML
+    responseHtml = addDataLineToInterrupts(responseHtml, interruptLines, responseLine);
+
+    // Generate fieldset HTML structure with granular source line mapping for VSCode sync
     return `<fieldset class="ai-container" data-line="${sourceLine}">
   <legend>ai</legend>
-  <div class="ai-prompt">${promptHtml}</div>
+  <div class="ai-prompt" data-line="${promptLine}">${promptHtml}</div>
   <hr class="ai-separator">
-  <div class="ai-response">${responseHtml}</div>
+  <div class="ai-response" data-line="${responseLine}">${responseHtml}</div>
 </fieldset>
 `;
+}
+
+/**
+ * Find line numbers of interrupt markers in response content
+ */
+function findInterruptLineNumbers(responseText: string): number[] {
+    if (!responseText) return [];
+
+    const lines = responseText.split(/\r?\n/);
+    const interruptMarker = /^\s*\*\*Interrupt:\*\*\s*$/;
+    const interruptLines: number[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        if (interruptMarker.test(lines[i])) {
+            interruptLines.push(i); // Line offset within response content
+        }
+    }
+
+    return interruptLines;
+}
+
+/**
+ * Add data-line attributes to Interrupt markers in rendered HTML
+ */
+function addDataLineToInterrupts(html: string, interruptLineOffsets: number[], responseStartLine: number): string {
+    if (interruptLineOffsets.length === 0) return html;
+
+    // After markdown rendering, **Interrupt:** becomes <p><strong>Interrupt:</strong></p>
+    // We need to add data-line to these elements
+
+    // Replace each occurrence with a version that has data-line
+    let modifiedHtml = html;
+    let interruptIndex = 0;
+
+    // Pattern to match <p><strong>Interrupt:</strong></p> or similar
+    const interruptPattern = /(<p[^>]*>)<strong>Interrupt:<\/strong>(<\/p>)/g;
+
+    modifiedHtml = modifiedHtml.replace(interruptPattern, (match, openTag, closeTag) => {
+        if (interruptIndex < interruptLineOffsets.length) {
+            const lineOffset = interruptLineOffsets[interruptIndex];
+            const absoluteLine = responseStartLine + 1 + lineOffset; // +1 because responseLine points to "response:", content starts next line
+            interruptIndex++;
+            return `${openTag}<strong data-line="${absoluteLine}">Interrupt:</strong>${closeTag}`;
+        }
+        return match;
+    });
+
+    return modifiedHtml;
 }
 
 function escapeHtml(str: string): string {
