@@ -2,19 +2,25 @@ import { MarkdownIt, Token } from "../@types/markdown-it";
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Debug logging to file
+// Debug logging configuration
+const DEBUG_ENABLED = false;  // Set to true to enable debug logging
 const DEBUG_LOG_FILE = path.join(__dirname, '../../debug-data-line.log');
+
 function debugLog(message: string) {
+    if (!DEBUG_ENABLED) return;
+
     const timestamp = new Date().toISOString();
     fs.appendFileSync(DEBUG_LOG_FILE, `[${timestamp}] ${message}\n`);
     console.log(message);  // Also log to console for convenience
 }
 
-// Clear log file on module load
-try {
-    fs.writeFileSync(DEBUG_LOG_FILE, `=== Debug Log Started at ${new Date().toISOString()} ===\n\n`);
-} catch (e) {
-    console.error('Failed to initialize debug log file:', e);
+// Clear log file on module load (only if debugging is enabled)
+if (DEBUG_ENABLED) {
+    try {
+        fs.writeFileSync(DEBUG_LOG_FILE, `=== Debug Log Started at ${new Date().toISOString()} ===\n\n`);
+    } catch (e) {
+        console.error('Failed to initialize debug log file:', e);
+    }
 }
 
 const
